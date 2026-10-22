@@ -439,6 +439,7 @@ fn run(o: Opts) -> i32 {
         match tty::Tty::new(&o.gfx) {
             Ok(mut t) => {
                 t.contrast = st.contrast_ratio();
+                t.set_recolor(&std::env::var("EMUERA_RECOLOR").unwrap_or_else(|_| st.get("recolor").to_string()));
                 t.wheel = st.get("wheel").parse().unwrap_or(3);
                 t.status_info = st.get("statusbar") == "on";
                 t.show_memory = st.get("memory") == "on";

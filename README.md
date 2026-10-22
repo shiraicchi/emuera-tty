@@ -244,6 +244,7 @@ you play or add goes into your **library**. Once there are two or more,
 | Enter (or click twice) | play the selected game |
 | `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive |
 | `u` | update a game kept in a git checkout (`git pull --ff-only`; marked **· git**) |
+| `U` (Shift-U) | update all of them, each checkout once, then sum up what changed |
 | `d` / Delete | take the game off the list (its files and saves stay) |
 | `s` / **⚙ Settings** | the settings page (see [Settings](#settings)) |
 | `q` / Esc | quit |
@@ -468,7 +469,10 @@ set) lists every `EMUERA_*` variable emuera-tty reads with the value it sees (�
 set; Enter says what one does; read-only, as they are read at start). It also
 has *Game settings…* and *Manage saves…* (below),
 *Clear the picture cache* (frees the decoded sprites whatever *Images* says;
-they load again when shown), *Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
+they load again when shown), *Recolor…* (draws a colour of the game's as another,
+written `from:to` in hex, comma separated: `01183c:111d3b` turns AnonTW's time-stop
+navy into a softer blue; the game still sees its own colours; also `EMUERA_RECOLOR`),
+*Switch game…* and *Quit*. Command-line options and `EMUERA_*` variables
 override saved settings.
 
 ### Game settings (Emuera's settings window)

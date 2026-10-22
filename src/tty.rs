@@ -400,6 +400,9 @@ pub struct Tty {
     screen_bg: Option<Rgb>,
     /// minimum contrast for coloured text (1: off), see `console::readable`
     pub contrast: f32,
+    /// colours drawn as others (`recolor` setting: AnonTW's time-stop navy
+    /// as a softer blue…); the game still sees its own
+    pub recolor: Vec<(Rgb, Rgb)>,
     /// lines per mouse-wheel step
     pub wheel: usize,
     /// show the hovered button's value, memory and the running function
@@ -611,6 +614,17 @@ enum Ambi {
     Osc66,
 }
 
+/// `from:to` pairs of hex colours, comma separated (`01183c:111d3b`,
+/// `#` or `0x` allowed); pairs that don't parse are left out.
+fn parse_recolor(v: &str) -> Vec<(Rgb, Rgb)> {
+    let hex = |s: &str| {
+        let s = s.trim().trim_start_matches('#');
+        let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+        u32::from_str_radix(s, 16).ok().filter(|_| !s.is_empty()).map(|n| Rgb::from_i64(n as i64))
+    };
+    v.split(',').filter_map(|p| p.split_once(':')).filter_map(|(a, b)| Some((hex(a)?, hex(b)?))).collect()
+}
+
 /// Write to the terminal and flush.
 fn write_all(b: &[u8]) {
     let mut out = std::io::stdout().lock();
@@ -694,6 +708,7 @@ impl Tty {
             frame_cursor: None,
             screen_bg: None,
             contrast: 3.0,
+            recolor: Vec::new(),
             wheel: 3,
             status_info: true,
             kbd_ptr: false,
@@ -1367,8 +1382,8 @@ impl Tty {
     /// The background is the text's own, else the window's (SETBGCOLOR);
     /// the foreground is made readable against it (see `contrast`).
     fn sgr(&self, out: &mut Vec<u8>, st: &Style, fg_override: Option<Rgb>) {
-        let bg = st.bg.or(self.screen_bg);
-        let fg = crate::console::readable(fg_override.unwrap_or(st.fg), bg.unwrap_or(Rgb(0, 0, 0)), self.contrast);
+        let bg = st.bg.map(|c| self.recolored(c)).or(self.screen_bg);
+        let fg = crate::console::readable(self.recolored(fg_override.unwrap_or(st.fg)), bg.unwrap_or(Rgb(0, 0, 0)), self.contrast);
         out.extend_from_slice(b"\x1b[0");
         if st.bold {
             out.extend_from_slice(b";1");
@@ -1439,7 +1454,7 @@ impl Tty {
     fn render(&mut self, con: &mut Console, res: &mut Resources, req: Option<&InputReq>) {
         // the window background, unless it is the game's default (then the
         // terminal's own background shows)
-        self.screen_bg = (con.screen_bg != con.default_bg).then_some(con.screen_bg);
+        self.screen_bg = (con.screen_bg != con.default_bg).then_some(self.recolored(con.screen_bg));
         let (cols, rows, xp, yp) = winsize();
         self.cols = cols;
         self.rows = rows.max(2);
@@ -2362,6 +2377,7 @@ impl Tty {
             rows.extend([
                 ("Clear the translation cache  (translate the screen again)", 4),
                 ("Clear the picture cache  (frees decoded sprites; they load again when shown)", 5),
+                ("Recolor…  (draw a colour of the game's as another)", 12),
                 ("Back to the title  (Ctrl-T)", 6),
                 ("Restart the game  (Ctrl-R)", 7),
                 ("Reload ERB files  (F5 / Ctrl-E)", 8),
@@ -2524,6 +2540,26 @@ impl Tty {
                         res.release_images();
                         note = format!("picture cache cleared ({:.1} MB freed)", before.saturating_sub(held(res)) as f64 / (1 << 20) as f64);
                         self.force_frame = true;
+                    }
+                    12 => {
+                        let cur = st.get("recolor").to_string();
+                        let what =
+                            "from:to pairs of hex colours, comma separated (e.g. 01183c:111d3b turns AnonTW's time-stop navy into a softer blue; empty: none)";
+                        if let Some(v) = self.prompt(con, res, req, "Recolor", what, &cur) {
+                            let v = v.trim().to_string();
+                            self.set_recolor(&v);
+                            let n = self.recolor.len();
+                            st.set("recolor", &v);
+                            st.save();
+                            note = if v.is_empty() {
+                                "recolouring off".into()
+                            } else if n == 0 {
+                                format!("no colour pairs understood in \"{}\" (write from:to, e.g. 01183c:111d3b)", v)
+                            } else {
+                                format!("{} colour{} recoloured (the game still sees its own colours)", n, if n == 1 { "" } else { "s" })
+                            };
+                            self.force_frame = true;
+                        }
                     }
                     6 => break OverlayExit::Title,
                     7 => break OverlayExit::Restart,
@@ -3036,6 +3072,16 @@ impl Tty {
 
     /// The Keyboard pointer setting: on, off, or auto (on on the Linux
     /// console when there is no mouse there).
+    /// A colour as drawn (see `recolor`).
+    fn recolored(&self, c: Rgb) -> Rgb {
+        self.recolor.iter().find(|(from, _)| *from == c).map_or(c, |(_, to)| *to)
+    }
+
+    /// The `recolor` setting (or EMUERA_RECOLOR).
+    pub fn set_recolor(&mut self, v: &str) {
+        self.recolor = parse_recolor(v);
+    }
+
     pub fn set_kbd_pointer(&mut self, v: &str) {
         let console = self.term == "linux" || self.term.starts_with("fbterm");
         self.kbd_ptr = v == "on" || (v == "auto" && console && self.mice.is_none());
@@ -3780,6 +3826,16 @@ impl Drop for Tty {
 #[cfg(test)]
 mod tests {
     use super::{char_cells, console_lookalike, Ambi};
+
+    #[test]
+    fn recolor_pairs() {
+        let r = crate::console::Rgb;
+        assert_eq!(
+            super::parse_recolor("01183c:111d3b, #000000:0x202020, bad, 12:zz"),
+            vec![(r(1, 24, 60), r(0x11, 0x1d, 0x3b)), (r(0, 0, 0), r(0x20, 0x20, 0x20))]
+        );
+        assert!(super::parse_recolor("").is_empty());
+    }
 
     #[test]
     fn osc66_draws_one_two_cell_glyph() {

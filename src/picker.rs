@@ -254,7 +254,7 @@ impl Picker {
             Mode::Library => {
                 s += &format!(
                     "\x1b[1memuera-tty — your games\x1b[0m\r\n\x1b[2m{}\x1b[0m\r\n",
-                    fit("Enter to play · a add a game · u update (git) · d remove from the list · s settings", cols)
+                    fit("Enter to play · a add a game · u update (git) · U update all · d remove from the list · s settings", cols)
                 )
             }
             Mode::Settings => {
@@ -303,7 +303,7 @@ impl Picker {
             s += "  (empty)\r\n";
         }
         let help = match self.mode {
-            Mode::Library => "↑↓ move  Enter play  a add  u update  d remove  s settings  q quit",
+            Mode::Library => "↑↓ move  Enter play  a add  u update  U update all  d remove  s settings  q quit",
             Mode::Settings => "↑↓ move  ←/→ or Enter change  Esc back",
             Mode::Browse if self.adding => "↑↓ move  Enter add/open  → open  ← up  ~ home  . hidden  Esc back",
             Mode::Browse => "↑↓ move  Enter play/open  → open  ← up  ~ home  . hidden  q quit",
@@ -442,6 +442,52 @@ impl Picker {
                     self.load();
                     self.sel = sel.min(self.entries.len().saturating_sub(1));
                 }
+                Err(None)
+            }
+            // every game that is a git checkout (each checkout once)
+            (Mode::Library, Act::Letter('U')) => {
+                let mut roots: Vec<PathBuf> = Vec::new();
+                for e in &self.entries {
+                    if let Kind::Game { path, ok: true } = &e.kind {
+                        if let Some(r) = git_root(path).filter(|r| !roots.contains(r)) {
+                            roots.push(r);
+                        }
+                    }
+                }
+                if roots.is_empty() {
+                    self.note = "None of these games is a git checkout: nothing to update from.".into();
+                    return Err(None);
+                }
+                let (cols, rows) = term_size();
+                let (mut updated, mut current, mut failed) = (Vec::new(), 0, Vec::new());
+                for (i, root) in roots.iter().enumerate() {
+                    out(format!(
+                        "\x1b[{};1H\x1b[0m\x1b[2K{}",
+                        rows.saturating_sub(1),
+                        fit(&format!("Updating {}/{}: {} (git pull)…", i + 1, roots.len(), root.display()), cols)
+                    )
+                    .as_bytes());
+                    let name = root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned());
+                    match git_pull(root) {
+                        Ok(m) if m.starts_with("Already") => current += 1,
+                        Ok(m) => updated.push(format!("{} ({})", name, m.trim_start_matches("Updated: ").trim_end_matches('.'))),
+                        Err(e) => failed.push(format!("{}: {}", name, e.trim_start_matches("Update failed: "))),
+                    }
+                }
+                let mut parts = Vec::new();
+                if !updated.is_empty() {
+                    parts.push(format!("updated {}", updated.join(", ")));
+                }
+                if current > 0 {
+                    parts.push(format!("{} already up to date", current));
+                }
+                if !failed.is_empty() {
+                    parts.push(format!("\x1b[31mfailed {}\x1b[0m", failed.join("; ")));
+                }
+                self.note = format!("Update all: {}.", parts.join("; "));
+                let sel = self.sel;
+                self.load();
+                self.sel = sel.min(self.entries.len().saturating_sub(1));
                 Err(None)
             }
             // ← / Backspace mean nothing on the library
