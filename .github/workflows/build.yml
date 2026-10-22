@@ -14,20 +14,34 @@ env:
 jobs:
   build:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # the same steps on every runner, Windows included (Git Bash)
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           # dynamically linked against glibc: for ordinary amd64 desktops and servers
           - name: linux-amd64
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             rustflags: ""
+            ext: ""
           # static musl program: runs on any amd64 Linux, whatever its libc
           # (the recipe from the README's "Other CPUs" section)
           - name: linux-amd64-static
+            os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             rustflags: "-C linker=rust-lld -C link-self-contained=yes -C target-feature=+crt-static"
+            ext: ""
+          # 64-bit Windows (run it in Windows Terminal)
+          - name: windows-amd64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rustflags: ""
+            ext: ".exe"
     steps:
       - uses: actions/checkout@v4
 
@@ -48,11 +62,11 @@ jobs:
       - name: Collect the binary
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/emuera-tty dist/emuera-tty-${{ matrix.name }}
-          file dist/emuera-tty-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/emuera-tty${{ matrix.ext }} dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
+          file dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }} || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: emuera-tty-${{ matrix.name }}
-          path: dist/emuera-tty-${{ matrix.name }}
+          path: dist/emuera-tty-${{ matrix.name }}${{ matrix.ext }}
           if-no-files-found: error
