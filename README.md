@@ -244,6 +244,7 @@ you play or add goes into your **library**. Once there are two or more,
 | Enter (or click twice) | play the selected game |
 | `a` / **＋ Add a game…** | open the folder picker above to add a folder or archive |
 | `u` | update a game kept in a git checkout (`git pull --ff-only`; marked **· git**) |
+| `U` (Shift-U) | update all of them, each checkout once, then sum up what changed |
 | `d` / Delete | take the game off the list (its files and saves stay) |
 | `s` / **⚙ Settings** | the settings page (see [Settings](#settings)) |
 | `q` / Esc | quit |
